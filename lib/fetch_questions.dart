@@ -1,45 +1,46 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-/// Fetch trivia questions from the Open Trivia Database API.
-///
-/// Parameters:
-/// - [questionCount]: Number of questions to fetch.
-/// - [category]: The category ID for the trivia questions.
-/// - [difficulty]: The difficulty level ("easy", "medium", "hard").
-/// - [type]: The type of questions ("multiple" or "boolean").
-///
-/// Returns a list of trivia questions.
 Future<List<dynamic>> fetchQuestions(
     int questionCount, String category, String difficulty, String type) async {
-  final url = Uri.parse(
-      'https://opentdb.com/api.php?amount=$questionCount&category=$category&difficulty=$difficulty&type=$type');
+  try {
+    final url = Uri.parse(
+        'https://opentdb.com/api.php?amount=$questionCount&category=$category&difficulty=$difficulty&type=$type');
+    final response = await http.get(url);
 
-  final response = await http.get(url);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
 
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body);
-    if (data['response_code'] == 0) {
-      return data['results'];
+      if (data['response_code'] == 0) {
+        return data['results'] as List<dynamic>;
+      } else {
+        throw Exception('No questions available for the selected settings.');
+      }
     } else {
-      throw Exception('No questions available for the selected options.');
+      throw Exception('Failed to load questions. Status code: ${response.statusCode}');
     }
-  } else {
-    throw Exception('Failed to fetch questions. Status code: ${response.statusCode}');
+  } catch (e) {
+    throw Exception('Error fetching questions: $e');
   }
 }
 
-/// Fetch trivia categories from the Open Trivia Database API.
-///
-/// Returns a list of categories with their names and IDs.
-Future<List<dynamic>> fetchCategories() async {
-  final url = Uri.parse('https://opentdb.com/api_category.php');
-  final response = await http.get(url);
+Future<List<Map<String, String>>> fetchCategories() async {
+  try {
+    final url = Uri.parse('https://opentdb.com/api_category.php');
+    final response = await http.get(url);
 
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body);
-    return data['trivia_categories'];
-  } else {
-    throw Exception('Failed to fetch categories. Status code: ${response.statusCode}');
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return (data['trivia_categories'] as List<dynamic>)
+          .map((category) => {
+                'id': category['id'].toString(),
+                'name': category['name'].toString(),
+              })
+          .toList();
+    } else {
+      throw Exception('Failed to load categories. Status code: ${response.statusCode}');
+    }
+  } catch (e) {
+    throw Exception('Error fetching categories: $e');
   }
 }

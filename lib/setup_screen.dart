@@ -2,112 +2,135 @@ import 'package:flutter/material.dart';
 import 'fetch_questions.dart';
 
 class SetupScreen extends StatefulWidget {
+  const SetupScreen({Key? key}) : super(key: key);
+
   @override
   _SetupScreenState createState() => _SetupScreenState();
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  List<dynamic> _categories = [];
-  String? _selectedCategory;
   int _questionCount = 5;
+  String? _category;
   String _difficulty = 'easy';
   String _type = 'multiple';
+  late Future<List<Map<String, String>>> _categoriesFuture;
 
   @override
   void initState() {
     super.initState();
-    fetchCategories().then((categories) {
-      setState(() {
-        _categories = categories;
-        _selectedCategory = _categories[0]['id'].toString(); // Default to the first category
-      });
-    });
+    _categoriesFuture = fetchCategories();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Setup Quiz'),
+        backgroundColor: Colors.pinkAccent,
+      ),
       body: Container(
-        color: Colors.pink[50],
-        child: Center(
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFE4E1),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
+              const Text(
                 'Customize Your Quiz',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.pink[800],
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               DropdownButton<int>(
                 value: _questionCount,
-                items: [5, 10, 15]
-                    .map((count) => DropdownMenuItem(value: count, child: Text('$count Questions')))
-                    .toList(),
                 onChanged: (value) {
                   setState(() {
                     _questionCount = value!;
                   });
                 },
-              ),
-              SizedBox(height: 10),
-              DropdownButton<String>(
-                value: _selectedCategory,
-                items: _categories
-                    .map((category) => DropdownMenuItem(
-                          value: category['id'].toString(),
-                          child: Text(category['name']),
+                items: [5, 10, 15]
+                    .map((count) => DropdownMenuItem<int>(
+                          value: count,
+                          child: Text('$count Questions'),
                         ))
                     .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategory = value!;
-                  });
+              ),
+              const SizedBox(height: 16),
+              FutureBuilder<List<Map<String, String>>>(
+                future: _categoriesFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const CircularProgressIndicator();
+                  } else if (snapshot.hasError) {
+                    return const Text('Failed to load categories');
+                  } else {
+                    final categories = snapshot.data!;
+                    return DropdownButton<String>(
+                      value: _category ?? categories.first['id'],
+                      onChanged: (value) {
+                        setState(() {
+                          _category = value;
+                        });
+                      },
+                      items: categories
+                          .map((category) => DropdownMenuItem<String>(
+                                value: category['id'],
+                                child: Text(category['name']!),
+                              ))
+                          .toList(),
+                    );
+                  }
                 },
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 16),
               DropdownButton<String>(
                 value: _difficulty,
-                items: ['easy', 'medium', 'hard']
-                    .map((level) => DropdownMenuItem(value: level, child: Text(level)))
-                    .toList(),
                 onChanged: (value) {
                   setState(() {
                     _difficulty = value!;
                   });
                 },
+                items: ['easy', 'medium', 'hard']
+                    .map((difficulty) => DropdownMenuItem<String>(
+                          value: difficulty,
+                          child: Text(difficulty[0].toUpperCase() + difficulty.substring(1)),
+                        ))
+                    .toList(),
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 16),
               DropdownButton<String>(
                 value: _type,
-                items: [
-                  DropdownMenuItem(value: 'multiple', child: Text('Multiple Choice')),
-                  DropdownMenuItem(value: 'boolean', child: Text('True/False')),
-                ],
                 onChanged: (value) {
                   setState(() {
                     _type = value!;
                   });
                 },
+                items: [
+                  DropdownMenuItem(value: 'multiple', child: Text('Multiple Choice')),
+                  DropdownMenuItem(value: 'boolean', child: Text('True/False')),
+                ],
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 24),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pink[400],
-                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                ),
                 onPressed: () {
-                  Navigator.pushNamed(context, '/quiz', arguments: {
-                    'questionCount': _questionCount,
-                    'category': _selectedCategory,
-                    'difficulty': _difficulty,
-                    'type': _type,
-                  });
+                  Navigator.pushNamed(
+                    context,
+                    '/quiz',
+                    arguments: {
+                      'questionCount': _questionCount,
+                      'category': _category ?? '9',
+                      'difficulty': _difficulty,
+                      'type': _type,
+                    },
+                  );
                 },
-                child: Text('Start Quiz'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.pinkAccent,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text('Start Quiz'),
               ),
             ],
           ),

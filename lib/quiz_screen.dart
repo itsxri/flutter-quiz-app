@@ -5,32 +5,55 @@ import 'fetch_questions.dart';
 class QuizScreen extends StatefulWidget {
   final Map<String, dynamic> settings;
 
-  QuizScreen({required this.settings});
+  const QuizScreen({required this.settings, Key? key}) : super(key: key);
 
   @override
   _QuizScreenState createState() => _QuizScreenState();
 }
 
 class _QuizScreenState extends State<QuizScreen> {
-  late Future<List<dynamic>> _questions;
+  late Future<void> _fetchQuestionsFuture;
+  late List<dynamic> _questions;
+  late List<List<String>> _shuffledAnswers;
   int _currentQuestionIndex = 0;
   int _score = 0;
-  int _timeLeft = 15; // Timer starts at 15 seconds
+  int _timeLeft = 15;
   Timer? _timer;
-  List<List<String>> _shuffledAnswers = [];
   String? _feedbackMessage;
 
   @override
   void initState() {
     super.initState();
-    _questions = fetchQuestions(
+    _initializeQuiz();
+  }
+
+  void _initializeQuiz() {
+    _questions = [];
+    _shuffledAnswers = [];
+    _currentQuestionIndex = 0;
+    _score = 0;
+    _feedbackMessage = null;
+    _timeLeft = 15;
+
+    _fetchQuestionsFuture = fetchQuestions(
       widget.settings['questionCount'],
       widget.settings['category'],
       widget.settings['difficulty'],
       widget.settings['type'],
-    );
-    _questions.then((questions) {
-      _precomputeShuffledAnswers(questions);
+    ).then((questions) {
+      setState(() {
+        _questions = questions.map((q) {
+          // Add an `answeredCorrectly` field for tracking
+          q['answeredCorrectly'] = null;
+          return q;
+        }).toList();
+        _shuffledAnswers = _questions.map((q) {
+          final answers = List<String>.from(q['incorrect_answers'])
+            ..add(q['correct_answer'])
+            ..shuffle();
+          return answers;
+        }).toList();
+      });
     });
     _startTimer();
   }
@@ -41,24 +64,15 @@ class _QuizScreenState extends State<QuizScreen> {
     super.dispose();
   }
 
-  void _precomputeShuffledAnswers(List<dynamic> questions) {
-    for (var question in questions) {
-      final answers = List<String>.from(question['incorrect_answers'])
-        ..add(question['correct_answer'])
-        ..shuffle();
-      _shuffledAnswers.add(answers);
-    }
-  }
-
   void _startTimer() {
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_timeLeft > 0) {
         setState(() {
           _timeLeft--;
         });
       } else {
         timer.cancel();
-        _showFeedback('Time\'s up!', correctAnswer: true);
+        _handleTimeOut();
       }
     });
   }
@@ -66,17 +80,17 @@ class _QuizScreenState extends State<QuizScreen> {
   void _resetTimer() {
     _timer?.cancel();
     setState(() {
-      _timeLeft = 15; // Reset timer
+      _timeLeft = 15;
     });
     _startTimer();
   }
 
   void _moveToNextQuestion() {
     setState(() {
-      _feedbackMessage = null; // Clear feedback
+      _feedbackMessage = null;
     });
 
-    if (_currentQuestionIndex + 1 < widget.settings['questionCount']) {
+    if (_currentQuestionIndex + 1 < _questions.length) {
       setState(() {
         _currentQuestionIndex++;
       });
@@ -86,38 +100,30 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  void _showFeedback(String feedback, {bool correctAnswer = false, String? answer}) {
+  void _handleTimeOut() {
     setState(() {
-      _feedbackMessage = feedback;
+      _feedbackMessage = "Time's up!";
+      _questions[_currentQuestionIndex]['answeredCorrectly'] = false;
     });
-
-    Future.delayed(Duration(seconds: 2), () {
-      if (correctAnswer && answer == null) {
-        _moveToNextQuestion();
-      } else {
-        _moveToNextQuestion();
-      }
-    });
+    Future.delayed(const Duration(seconds: 2), _moveToNextQuestion);
   }
 
   void _showFinalScoreDialog() {
-    _timer?.cancel();
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Quiz Completed!'),
-          content: Text('Your final score is $_score.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context); // Close the dialog
-                Navigator.pop(context); // Go back to the setup screen
-              },
-              child: Text('OK'),
-            ),
-          ],
-        );
+    final missedQuestions = _questions
+        .where((question) => question['answeredCorrectly'] == false)
+        .map((question) => {
+              'question': question['question'].toString(),
+              'correctAnswer': question['correct_answer'].toString(),
+            })
+        .toList();
+
+    Navigator.pushReplacementNamed(
+      context,
+      '/summary',
+      arguments: {
+        'totalQuestions': _questions.length,
+        'correctAnswers': _score,
+        'missedQuestions': missedQuestions,
       },
     );
   }
@@ -125,16 +131,17 @@ class _QuizScreenState extends State<QuizScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<List<dynamic>>(
-        future: _questions,
+      body: FutureBuilder<void>(
+        future: _fetchQuestionsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (snapshot.hasData) {
-            final questions = snapshot.data!;
-            final question = questions[_currentQuestionIndex];
+          } else if (_questions.isEmpty) {
+            return const Center(child: Text('No questions found.'));
+          } else {
+            final question = _questions[_currentQuestionIndex];
             final answers = _shuffledAnswers[_currentQuestionIndex];
 
             return Container(
@@ -152,48 +159,57 @@ class _QuizScreenState extends State<QuizScreen> {
                     alignment: Alignment.center,
                     children: [
                       CircularProgressIndicator(
-                        value: _timeLeft / 15, // Timer progress
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.pink[400]!),
+                        value: _timeLeft / 15,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.pink),
                         backgroundColor: Colors.pink[50],
                       ),
                       Text(
                         '$_timeLeft',
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.pink[800]),
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.pink[800],
+                        ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
                     'Score: $_score',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.pink[800]),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
-                    question['question'], // Display the question
-                    style: TextStyle(fontSize: 18),
+                    question['question'],
+                    style: const TextStyle(fontSize: 18),
                     textAlign: TextAlign.center,
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   if (_feedbackMessage != null)
                     Text(
                       _feedbackMessage!,
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.pink[800]),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _feedbackMessage == "Correct!" ? Colors.green : Colors.red,
+                      ),
                     ),
-                  if (_feedbackMessage == null) ...answers.map((answer) {
+                  const SizedBox(height: 20),
+                  ...answers.map((answer) {
                     return ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.pink[400],
                       ),
                       onPressed: () {
                         final isCorrect = answer == question['correct_answer'];
-                        if (isCorrect) {
-                          setState(() {
+                        setState(() {
+                          _feedbackMessage = isCorrect ? "Correct!" : "Incorrect!";
+                          _questions[_currentQuestionIndex]['answeredCorrectly'] = isCorrect;
+                          if (isCorrect) {
                             _score++;
-                          });
-                          _showFeedback('Correct!', correctAnswer: true);
-                        } else {
-                          _showFeedback('Incorrect! Correct answer: ${question['correct_answer']}');
-                        }
+                          }
+                        });
+                        Future.delayed(const Duration(seconds: 2), _moveToNextQuestion);
                       },
                       child: Text(answer),
                     );
@@ -201,8 +217,6 @@ class _QuizScreenState extends State<QuizScreen> {
                 ],
               ),
             );
-          } else {
-            return Center(child: Text('No questions available.'));
           }
         },
       ),
